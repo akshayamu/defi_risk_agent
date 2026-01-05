@@ -1,19 +1,33 @@
 import yaml
 from typing import Dict
 
-
-# -----------------------------
+# =========================================================
 # Load strategy configuration
-# -----------------------------
+# =========================================================
+
+from pathlib import Path
+import yaml
+
 def load_strategy(path: str) -> dict:
-    with open(path, "r") as f:
+    """
+    Load strategy YAML relative to the package root.
+    This works regardless of the working directory.
+    """
+    base_dir = Path(__file__).resolve().parent
+    strategy_path = base_dir / path
+
+    with open(strategy_path, "r") as f:
         return yaml.safe_load(f)
 
 
-# -----------------------------
-# Core financial logic
-# -----------------------------
+# =========================================================
+# Core financial logic (PURE FUNCTIONS)
+# =========================================================
+
 def compute_ltv(borrowed: float, collateral_value: float) -> float:
+    """
+    Loan-to-Value calculation.
+    """
     return borrowed / collateral_value
 
 
@@ -24,26 +38,64 @@ def simulate_price_drop(
     liquidation_threshold: float,
     drop_pct: float,
 ) -> Dict:
+    """
+    Simulate a deterministic price drop and evaluate liquidation.
+    """
     new_price = price * (1 - drop_pct)
     new_collateral_value = collateral_amount * new_price
     ltv = compute_ltv(borrowed, new_collateral_value)
 
     return {
-        "price_drop_pct": drop_pct * 100,
+        "price_drop_pct": round(drop_pct * 100, 2),
         "new_price": round(new_price, 2),
         "ltv_pct": round(ltv * 100, 2),
         "liquidated": ltv > liquidation_threshold,
     }
 
 
-# -----------------------------
-# Risk report generation
-# -----------------------------
+# =========================================================
+# Base (static) risk snapshot — REQUIRED BY REPORT LAYER
+# =========================================================
+
+def generate_base_report(strategy: dict) -> Dict:
+    """
+    Generate a static snapshot of the position without stress.
+    Used by reporting and higher-level scenario engines.
+    """
+    position = strategy["position"]
+    market = strategy["market"]
+    protocol = strategy["protocol"]
+
+    collateral_value = position["collateral_amount"] * market["collateral_price"]
+    ltv = compute_ltv(position["borrowed_amount"], collateral_value)
+
+    return {
+        "protocol": protocol["name"],
+        "current_ltv_pct": round(ltv * 100, 2),
+        "liquidation_threshold_pct": round(
+            protocol["liquidation_threshold"] * 100, 2
+        ),
+    }
+
+
+# =========================================================
+# Legacy CLI risk report (kept intentionally)
+# =========================================================
+
 def generate_risk_report(strategy: dict) -> Dict:
-    collateral_amount = strategy["position"]["collateral_amount"]
-    collateral_price = strategy["position"]["collateral_price"]
-    borrowed = strategy["position"]["borrowed_amount"]
-    liquidation_threshold = strategy["collateral"]["liquidation_threshold"]
+    """
+    CLI-oriented deterministic risk report.
+    This is NOT used by the modular reporting pipeline,
+    but is preserved for backward compatibility.
+    """
+    position = strategy["position"]
+    market = strategy["market"]
+    protocol = strategy["protocol"]
+
+    collateral_amount = position["collateral_amount"]
+    collateral_price = market["collateral_price"]
+    borrowed = position["borrowed_amount"]
+    liquidation_threshold = protocol["liquidation_threshold"]
 
     initial_value = collateral_amount * collateral_price
     initial_ltv = compute_ltv(borrowed, initial_value)
@@ -51,7 +103,7 @@ def generate_risk_report(strategy: dict) -> Dict:
     scenarios = []
     liquidation_point = None
 
-    for drop in [0.1, 0.2, 0.3, 0.4]:
+    for drop in [0.10, 0.20, 0.30, 0.40]:
         result = simulate_price_drop(
             collateral_amount,
             collateral_price,
@@ -73,7 +125,7 @@ def generate_risk_report(strategy: dict) -> Dict:
     )
 
     return {
-        "protocol": strategy["protocol"],
+        "protocol": protocol["name"],
         "current_ltv_pct": round(initial_ltv * 100, 2),
         "liquidation_threshold_pct": liquidation_threshold * 100,
         "liquidation_price_drop_pct": liquidation_point,
@@ -82,7 +134,62 @@ def generate_risk_report(strategy: dict) -> Dict:
     }
 
 
-def print_risk_report(report: Dict):
+# =========================================================
+# Sensitivity analysis — borrowed amount
+# =========================================================
+
+def analyze_borrow_sensitivity(strategy: dict) -> Dict:
+    """
+    Deterministic sensitivity analysis over borrowed amount.
+    """
+    position = strategy["position"]
+    market = strategy["market"]
+    protocol = strategy["protocol"]
+
+    collateral_amount = position["collateral_amount"]
+    collateral_price = market["collateral_price"]
+    liquidation_threshold = protocol["liquidation_threshold"]
+
+    base_borrowed = position["borrowed_amount"]
+
+    test_borrows = [
+        base_borrowed * 0.7,
+        base_borrowed * 0.8,
+        base_borrowed,
+        base_borrowed * 1.1,
+    ]
+
+    results = []
+
+    collateral_value = collateral_amount * collateral_price
+
+    for borrowed in test_borrows:
+        ltv = compute_ltv(borrowed, collateral_value)
+
+        results.append(
+            {
+                "borrowed_amount": round(borrowed, 2),
+                "ltv_pct": round(ltv * 100, 2),
+                "liquidation_buffer_pct": round(
+                    (liquidation_threshold - ltv) * 100, 2
+                ),
+            }
+        )
+
+    return {
+        "parameter": "borrowed_amount",
+        "results": results,
+    }
+
+
+# =========================================================
+# CLI entry point (optional, deterministic)
+# =========================================================
+
+def main():
+    strategy = load_strategy("strategy.yaml")
+
+    report = generate_risk_report(strategy)
     print("\n=== Risk Report ===")
     print(f"Protocol: {report['protocol']}")
     print(f"Current LTV: {report['current_ltv_pct']}%")
@@ -103,55 +210,6 @@ def print_risk_report(report: Dict):
             f"- {s['price_drop_pct']:>4.0f}% drop → "
             f"LTV {s['ltv_pct']:>6.2f}% → {status}"
         )
-
-
-# -----------------------------
-# Sensitivity analysis
-# -----------------------------
-def analyze_borrow_sensitivity(strategy: dict) -> Dict:
-    collateral_amount = strategy["position"]["collateral_amount"]
-    collateral_price = strategy["position"]["collateral_price"]
-    liquidation_threshold = strategy["collateral"]["liquidation_threshold"]
-
-    base_borrowed = strategy["position"]["borrowed_amount"]
-
-    test_borrows = [
-        base_borrowed * 0.7,
-        base_borrowed * 0.8,
-        base_borrowed,
-        base_borrowed * 1.1,
-    ]
-
-    results = []
-
-    for borrowed in test_borrows:
-        collateral_value = collateral_amount * collateral_price
-        ltv = compute_ltv(borrowed, collateral_value)
-
-        results.append(
-            {
-                "borrowed_amount": round(borrowed, 2),
-                "ltv_pct": round(ltv * 100, 2),
-                "liquidation_buffer_pct": round(
-                    (liquidation_threshold - ltv) * 100, 2
-                ),
-            }
-        )
-
-    return {
-        "parameter": "borrowed_amount",
-        "results": results,
-    }
-
-
-# -----------------------------
-# Entry point
-# -----------------------------
-def main():
-    strategy = load_strategy("strategy.yaml")
-
-    report = generate_risk_report(strategy)
-    print_risk_report(report)
 
     sensitivity = analyze_borrow_sensitivity(strategy)
 

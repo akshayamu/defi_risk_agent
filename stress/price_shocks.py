@@ -1,4 +1,5 @@
-from simulator import simulate_price_drop
+from defi_risk_agent.simulator import simulate_price_drop
+
 
 def run_price_shocks(strategy: dict):
     drops = [0.10, 0.20, 0.30, 0.40, 0.50]

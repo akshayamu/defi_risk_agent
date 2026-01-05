@@ -1,19 +1,10 @@
-protocol: "ToyLend"
+protocol:
+  name: ToyLend
+  liquidation_threshold: 0.80
 
-collateral:
-  asset: "ETH"
-  collateral_factor: 0.75        # max borrow = 75% of collateral value
-  liquidation_threshold: 0.8     # liquidation if debt > 80% of collateral value
-
-debt:
-  asset: "USDC"
-  interest_rate_apy: 0.05
+market:
+  collateral_price: 1000.0
 
 position:
-  collateral_amount: 10          # ETH
-  collateral_price: 2000         # USD
-  borrowed_amount: 12000         # USDC
-
-risk_assumptions:
-  price_volatility: 0.6          # annualized
-  liquidity_buffer: 0.1          # 10% slippage under stress
+  collateral_amount: 15.0
+  borrowed_amount: 9000.0

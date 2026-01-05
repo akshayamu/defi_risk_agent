@@ -1,4 +1,5 @@
-from simulator import compute_ltv
+from defi_risk_agent.simulator import compute_ltv
+
 
 def leverage_sensitivity(strategy: dict):
     borrowed_levels = [7000, 8000, 9000, 10000, 11000]
