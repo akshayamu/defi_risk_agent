@@ -1,0 +1,12 @@
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Generated reports
+reports/latest.json
+
+# Images (add later in docs/)
+*.png
+
+# OS noise
+.DS_Store
